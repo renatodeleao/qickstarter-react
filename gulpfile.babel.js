@@ -153,59 +153,6 @@ export function scripts() {
 
 
 /*
- * Static sites like a bauss using Panini by Zurb
- *
- * repo: https://github.com/zurb/panini
- */
-export function views() {
-  return gulp.src(paths.views.src + 'pages/**/*.html' )
-    .pipe(panini({
-      root: paths.views.src + 'pages/',
-      layouts: paths.views.src + 'layouts/',
-      partials: paths.views.src + 'partials/**/',
-      helpers: paths.views.src + 'helpers/',
-      data: paths.views.src + 'data/'
-    }))
-    .pipe(
-      $.if (productionEnv,
-        $.htmlmin({
-          removeComments: true,
-          collapseWhitespace: true,
-          collapseBooleanAttributes: true,
-          removeAttributeQuotes: true,
-          removeRedundantAttributes: true,
-          removeEmptyAttributes: true,
-          removeScriptTypeAttributes: true,
-          removeStyleLinkTypeAttributes: true,
-          removeOptionalTags: true
-        })))
-    .pipe($.if(productionEnv, $.size({
-      title: $.util.colors.bgRed('[SIZE] Views: '), 
-      showFiles: true
-    })))
-    .pipe(gulp.dest(paths.views.dest))
-
-}
-
-export function paniniRefresh(done){
-  panini.refresh()
-  done()
-}
-
-export function viewsBuildAndStream() {
-  return views()
-    .pipe(browserSync.stream())
-}
-
-export function paniniRebuild() {
-  return gulp.series(
-    paniniRefresh,
-    viewsBuildAndStream
-  );
-};
-
-
-/*
  * Local server using BrowserSync
  */
 export function browserSyncServer(done){
