@@ -1,7 +1,6 @@
 import gulp from 'gulp';
 import gulpLoadPlugins from 'gulp-load-plugins';
 import del from 'del';
-import panini from 'panini';
 import BrowserSync from 'browser-sync';
 import {output as pagespeed} from 'psi';
 import pkg from './package.json';
@@ -9,6 +8,7 @@ import pkg from './package.json';
 const browserSync = BrowserSync.create();
 const $ = gulpLoadPlugins();
 const productionEnv = $.util.env.env === 'production';
+const reload = browserSync.reload;
 
 const paths = {
   appRoot: {
@@ -22,6 +22,7 @@ const paths = {
   },
   scripts: {
     src:  'app/scripts/**/*.{js, coffee}',
+    vendor: 'dist/scripts/vendor',
     dest: 'dist/scripts/'
   },
   images: {
@@ -32,12 +33,25 @@ const paths = {
     src:  'app/assets/fonts/**/{*.woff, *.woff2}',
     dest: 'dist/assets/fonts/'
   },
-  views: {
-    src: 'app/views/',
-    dest: 'dist/'
+  react: {
+    src: {
+      root: 'app/react/',
+      components: 'app/react/components/*.{js, jsx}',
+      containers: 'app/react/containers/*.{js, jsx}',
+      server:     'app/react/containers/*.{js, jsx}',
+      libs: [
+        'node_modules/react/dist/react.js',
+        'node_modules/react-dom/dist/react-dom.js'
+      ]
+    }
   }
 };
 
+const config = {
+  plumber: {
+    errorHandler: handleError
+  }
+}
 /*Utilities*/
 // Run PageSpeed Insights
 export function runPageSpeedInsights(done){
@@ -74,7 +88,66 @@ export { clean }
 //  done()
 // }
 
-/*Copy Common App RootFiles */
+
+// Lint JS/JSX files
+export function esLint() {
+  return gulp.src(paths.react.src.root + '**/*.{js, jsx}')
+    .pipe($.eslint({
+      baseConfig: {
+        "ecmaFeatures": {
+           "jsx": true
+         }
+      }
+    }))
+    .pipe($.eslint.format())
+    .pipe($.eslint.failAfterError());
+}
+
+// Copy react.js and react-dom.js to dist/scripts/vendor
+// only if the copy in node_modules is "newer"
+//not sure why not pass all to one copy task but let's follow the tutorial
+export function copyReactLibs(){
+  return gulp.src(paths.react.src.libs)
+    .pipe(gulp.dest(paths.scripts.vendor));
+}
+
+//Sry hackathon
+export function copyAppIndex(){
+  return gulp.src(paths.react.src.root + "index.html")
+    .pipe(gulp.dest(paths.appRoot.dest));
+}
+
+// Concatenate jsFiles.vendor and jsFiles.source into one JS file.
+// Run copy-react and eslint before concatenating
+export function bundleReact(){
+  return gulp.src(paths.react.src.root + "**/*.{js, jsx}")
+    .pipe($.sourcemaps.init())
+    .pipe($.babel({
+      only: [
+        //or not
+        paths.react.src.components,
+      ],
+      compact: false
+    }))
+    .pipe($.concat('reactBundle.js'))
+    .pipe($.sourcemaps.write('./'))
+    .pipe(gulp.dest(paths.scripts.dest))
+    .pipe(browserSync.reload({stream: true}))
+}
+
+export function bundleAndExportReact(){
+  return gulp.series(
+    bundleReact,
+    gulp.parallel(
+      copyReactLibs,
+      copyAppIndex,
+      esLint,
+    )
+  )
+}
+
+
+/*Copy Common App Meta RootFiles */
 export function copyRootFiles() {
   return gulp.src([paths.appRoot.src + '/*.*', paths.appRoot.src + '/CNAME'], {since: gulp.lastRun('copyRootFiles'), dot: true})
     .pipe(gulp.dest(paths.appRoot.dest));
@@ -107,7 +180,7 @@ export function fonts() {
  */
 export function styles() {
   return gulp.src(paths.styles.manifesto)
-    .pipe($.plumber())
+    .pipe($.plumber(config.plumber))
     .pipe($.if(!productionEnv, $.sourcemaps.init({
       loadMaps: true
     })))
@@ -137,6 +210,14 @@ export function styles() {
     .pipe(browserSync.reload({stream: true}))
 }
 
+
+/*
+ * Non-react scripts
+ * 
+ * Interactive Script, Animation Scripts
+ * This probably make no sense since we can import scripts in the modules
+ * I don't know, hackathon!
+ */
 export function scripts() {
   return gulp.src(paths.scripts.src, { sourcemaps: true })
     .pipe($.cached('scripts'))    
@@ -180,7 +261,7 @@ export function watch() {
   gulp.watch(paths.fonts.src,   fonts);
   gulp.watch(paths.styles.src,  styles);
   gulp.watch(paths.scripts.src, scripts);
-  gulp.watch(paths.views.src,   paniniRebuild());
+  gulp.watch(paths.react.src.root + '**/*.{js,jsx}', bundleReact);
 
   $.util.log($.util.colors.bgGreen('Watching for changes...'));
 }
@@ -198,7 +279,7 @@ const build = gulp.series(
     fonts,
     styles, 
     scripts,
-    views
+    bundleAndExportReact()
   )
 );
 
