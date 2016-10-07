@@ -1,4 +1,8 @@
-# Sassqit
+# QickStarter react-gulp
+>React + Gulp made love and spit this.
+
+# Disclaimer code is shit
+add the corresponding paths of the react app to paths object
 
 ##### For dev site
 1.  Install `node` and `npm install gulp -g`
