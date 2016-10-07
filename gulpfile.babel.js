@@ -1,14 +1,18 @@
 import gulp from 'gulp';
 import gulpLoadPlugins from 'gulp-load-plugins';
 import del from 'del';
-import panini from 'panini';
 import BrowserSync from 'browser-sync';
 import {output as pagespeed} from 'psi';
 import pkg from './package.json';
+import browserify from 'browserify';
+import source from 'vinyl-source-stream';
+import babelify from 'babelify';
+import reactify from 'reactify';
 
 const browserSync = BrowserSync.create();
 const $ = gulpLoadPlugins();
 const productionEnv = $.util.env.env === 'production';
+const reload = browserSync.reload;
 
 const paths = {
   appRoot: {
@@ -22,6 +26,7 @@ const paths = {
   },
   scripts: {
     src:  'app/scripts/**/*.{js, coffee}',
+    vendor: 'dist/scripts/vendor',
     dest: 'dist/scripts/'
   },
   images: {
@@ -32,12 +37,26 @@ const paths = {
     src:  'app/assets/fonts/**/{*.woff, *.woff2}',
     dest: 'dist/assets/fonts/'
   },
-  views: {
-    src: 'app/views/',
-    dest: 'dist/'
+  react: {
+    entry: "app/react/index.js",
+    src: {
+      root: 'app/react/',
+      components: 'app/react/components/*.{js, jsx}',
+      containers: 'app/react/containers/*.{js, jsx}',
+      server:     'app/react/containers/*.{js, jsx}',
+      libs: [
+        'node_modules/react/dist/react.js',
+        'node_modules/react-dom/dist/react-dom.js'
+      ]
+    }
   }
 };
 
+const config = {
+  plumber: {
+    errorHandler: handleError
+  }
+}
 /*Utilities*/
 // Run PageSpeed Insights
 export function runPageSpeedInsights(done){
@@ -74,7 +93,8 @@ export { clean }
 //  done()
 // }
 
-/*Copy Common App RootFiles */
+
+/*Copy Common App Meta RootFiles */
 export function copyRootFiles() {
   return gulp.src([paths.appRoot.src + '/*.*', paths.appRoot.src + '/CNAME'], {since: gulp.lastRun('copyRootFiles'), dot: true})
     .pipe(gulp.dest(paths.appRoot.dest));
@@ -107,7 +127,7 @@ export function fonts() {
  */
 export function styles() {
   return gulp.src(paths.styles.manifesto)
-    .pipe($.plumber())
+    .pipe($.plumber(config.plumber))
     .pipe($.if(!productionEnv, $.sourcemaps.init({
       loadMaps: true
     })))
@@ -137,6 +157,14 @@ export function styles() {
     .pipe(browserSync.reload({stream: true}))
 }
 
+
+/*
+ * Non-react scripts
+ * 
+ * Interactive Script, Animation Scripts
+ * This probably make no sense since we can import scripts in the modules
+ * I don't know, hackathon!
+ */
 export function scripts() {
   return gulp.src(paths.scripts.src, { sourcemaps: true })
     .pipe($.cached('scripts'))    
@@ -150,59 +178,6 @@ export function scripts() {
     })))
     .pipe(gulp.dest(paths.scripts.dest));
 }
-
-
-/*
- * Static sites like a bauss using Panini by Zurb
- *
- * repo: https://github.com/zurb/panini
- */
-export function views() {
-  return gulp.src(paths.views.src + 'pages/**/*.html' )
-    .pipe(panini({
-      root: paths.views.src + 'pages/',
-      layouts: paths.views.src + 'layouts/',
-      partials: paths.views.src + 'partials/**/',
-      helpers: paths.views.src + 'helpers/',
-      data: paths.views.src + 'data/'
-    }))
-    .pipe(
-      $.if (productionEnv,
-        $.htmlmin({
-          removeComments: true,
-          collapseWhitespace: true,
-          collapseBooleanAttributes: true,
-          removeAttributeQuotes: true,
-          removeRedundantAttributes: true,
-          removeEmptyAttributes: true,
-          removeScriptTypeAttributes: true,
-          removeStyleLinkTypeAttributes: true,
-          removeOptionalTags: true
-        })))
-    .pipe($.if(productionEnv, $.size({
-      title: $.util.colors.bgRed('[SIZE] Views: '), 
-      showFiles: true
-    })))
-    .pipe(gulp.dest(paths.views.dest))
-
-}
-
-export function paniniRefresh(done){
-  panini.refresh()
-  done()
-}
-
-export function viewsBuildAndStream() {
-  return views()
-    .pipe(browserSync.stream())
-}
-
-export function paniniRebuild() {
-  return gulp.series(
-    paniniRefresh,
-    viewsBuildAndStream
-  );
-};
 
 
 /*
@@ -223,7 +198,30 @@ export function browserSyncServer(done){
   done()
 }
 
+/**
+ * JSLint/JSHint validation
+ */
 
+ export function lint(){
+  return gulp.src(paths.react.src.root + '**/*.{js, jsx}')
+  .pipe(jshint())
+  .pipe(jshint.reporter('default'));
+ }
+
+
+export function copyAppIndex(){
+  return gulp.src(paths.react.src.root + "index.html")
+    .pipe(gulp.dest(paths.appRoot.dest))
+}
+
+/** JavaScript compilation */
+export function reactBundle(){
+  return browserify(paths.react.entry)
+    .transform("babelify", {presets: ["es2015", "react"]})
+    .bundle()
+    .pipe(source('bundle.js'))
+    .pipe(gulp.dest(paths.scripts.dest));
+}
 
 /*
  * Listen for Changes
@@ -233,7 +231,7 @@ export function watch() {
   gulp.watch(paths.fonts.src,   fonts);
   gulp.watch(paths.styles.src,  styles);
   gulp.watch(paths.scripts.src, scripts);
-  gulp.watch(paths.views.src,   paniniRebuild());
+  gulp.watch(paths.react.src.root + '**/*.{js,jsx}', reactBundle);
 
   $.util.log($.util.colors.bgGreen('Watching for changes...'));
 }
@@ -251,7 +249,8 @@ const build = gulp.series(
     fonts,
     styles, 
     scripts,
-    views
+    copyAppIndex,
+    reactBundle
   )
 );
 
