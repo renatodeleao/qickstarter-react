@@ -4,6 +4,10 @@ import del from 'del';
 import BrowserSync from 'browser-sync';
 import {output as pagespeed} from 'psi';
 import pkg from './package.json';
+import browserify from 'browserify';
+import source from 'vinyl-source-stream';
+import babelify from 'babelify';
+import reactify from 'reactify';
 
 const browserSync = BrowserSync.create();
 const $ = gulpLoadPlugins();
@@ -34,6 +38,7 @@ const paths = {
     dest: 'dist/assets/fonts/'
   },
   react: {
+    entry: "app/react/index.js",
     src: {
       root: 'app/react/',
       components: 'app/react/components/*.{js, jsx}',
@@ -87,64 +92,6 @@ export { clean }
 //  del([ paths.appRoot.dest ])
 //  done()
 // }
-
-
-// Lint JS/JSX files
-export function esLint() {
-  return gulp.src(paths.react.src.root + '**/*.{js, jsx}')
-    .pipe($.eslint({
-      baseConfig: {
-        "ecmaFeatures": {
-           "jsx": true
-         }
-      }
-    }))
-    .pipe($.eslint.format())
-    .pipe($.eslint.failAfterError());
-}
-
-// Copy react.js and react-dom.js to dist/scripts/vendor
-// only if the copy in node_modules is "newer"
-//not sure why not pass all to one copy task but let's follow the tutorial
-export function copyReactLibs(){
-  return gulp.src(paths.react.src.libs)
-    .pipe(gulp.dest(paths.scripts.vendor));
-}
-
-//Sry hackathon
-export function copyAppIndex(){
-  return gulp.src(paths.react.src.root + "index.html")
-    .pipe(gulp.dest(paths.appRoot.dest));
-}
-
-// Concatenate jsFiles.vendor and jsFiles.source into one JS file.
-// Run copy-react and eslint before concatenating
-export function bundleReact(){
-  return gulp.src(paths.react.src.root + "**/*.{js, jsx}")
-    .pipe($.sourcemaps.init())
-    .pipe($.babel({
-      only: [
-        //or not
-        paths.react.src.components,
-      ],
-      compact: false
-    }))
-    .pipe($.concat('reactBundle.js'))
-    .pipe($.sourcemaps.write('./'))
-    .pipe(gulp.dest(paths.scripts.dest))
-    .pipe(browserSync.reload({stream: true}))
-}
-
-export function bundleAndExportReact(){
-  return gulp.series(
-    bundleReact,
-    gulp.parallel(
-      copyReactLibs,
-      copyAppIndex,
-      esLint,
-    )
-  )
-}
 
 
 /*Copy Common App Meta RootFiles */
@@ -251,7 +198,30 @@ export function browserSyncServer(done){
   done()
 }
 
+/**
+ * JSLint/JSHint validation
+ */
 
+ export function lint(){
+  return gulp.src(paths.react.src.root + '**/*.{js, jsx}')
+  .pipe(jshint())
+  .pipe(jshint.reporter('default'));
+ }
+
+
+export function copyAppIndex(){
+  return gulp.src(paths.react.src.root + "index.html")
+    .pipe(gulp.dest(paths.appRoot.dest))
+}
+
+/** JavaScript compilation */
+export function reactBundle(){
+  return browserify(paths.react.entry)
+    .transform("babelify", {presets: ["es2015", "react"]})
+    .bundle()
+    .pipe(source('bundle.js'))
+    .pipe(gulp.dest(paths.scripts.dest));
+}
 
 /*
  * Listen for Changes
@@ -261,7 +231,7 @@ export function watch() {
   gulp.watch(paths.fonts.src,   fonts);
   gulp.watch(paths.styles.src,  styles);
   gulp.watch(paths.scripts.src, scripts);
-  gulp.watch(paths.react.src.root + '**/*.{js,jsx}', bundleReact);
+  gulp.watch(paths.react.src.root + '**/*.{js,jsx}', reactBundle);
 
   $.util.log($.util.colors.bgGreen('Watching for changes...'));
 }
@@ -279,7 +249,8 @@ const build = gulp.series(
     fonts,
     styles, 
     scripts,
-    bundleAndExportReact()
+    copyAppIndex,
+    reactBundle
   )
 );
 
